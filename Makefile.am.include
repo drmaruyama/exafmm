@@ -1,0 +1,111 @@
+### Base flags
+AM_CXXFLAGS =
+AM_CPPFLAGS = -I../vectorclass -I../include -I../uniform
+
+### Thread libraries
+if EXAFMM_HAVE_OPENMP
+AM_CPPFLAGS += -DEXAFMM_WITH_OPENMP
+AM_CXXFLAGS += $(OPENMP_CFLAGS)
+endif
+if EXAFMM_WITH_TBB
+LIBS += -ltbb # -dynamic
+endif
+if EXAFMM_WITH_CILK
+LIBS += -lcilkrts
+endif
+if EXAFMM_WITH_MTHREAD
+LIBS += -lmyth-native
+endif
+if EXAFMM_WITH_QTHREAD
+LIBS += -lqthread
+endif
+
+### Floating point precision
+if EXAFMM_SINGLE
+AM_CPPFLAGS += -DEXAFMM_SINGLE
+endif
+
+### SIMD flags
+if EXAFMM_USE_SIMD
+AM_CPPFLAGS += -DEXAFMM_USE_SIMD
+if EXAFMM_HAVE_MIC
+AM_CXXFLAGS += $(MIC_CXXFLAGS) # Use MIC intrinsics
+else
+if EXAFMM_HAVE_AVX
+AM_CXXFLAGS += $(AVX_CXXFLAGS) # Use AVX intrinsics
+else
+if EXAFMM_HAVE_SSE3
+AM_CXXFLAGS += $(SSE3_CXXFLAGS) # Use SSE3 intrinsics
+else 
+if EXAFMM_HAVE_NEON
+AM_CXXFLAGS += $(NEON_CXXFLAGS) # Use Neon intrinsics
+endif
+endif
+endif
+endif
+endif
+
+# Kahan summation
+if EXAFMM_USE_KAHAN
+AM_CPPFLAGS += -DEXAFMM_USE_KAHAN
+endif
+
+# Use weights for partitioning
+if EXAFMM_USE_WEIGHT
+AM_CPPFLAGS += -DEXAFMM_USE_WEIGHT
+endif
+
+# Use PAPI performance counter (export EXAFMM_PAPI_EVENTS="PAPI_L2_DCM,PAPI_L2_DCA,PAPI_TLB_DM")
+if EXAFMM_USE_PAPI
+AM_CPPFLAGS += -DEXAFMM_USE_PAPI
+LIBS += -lpapi
+endif
+
+# Use thread tracing
+if EXAFMM_USE_TRACE
+AM_CPPFLAGS += -DEXAFMM_USE_TRACE
+endif
+
+# Use DAG Recorder
+if EXAFMM_USE_DAG
+AM_CPPFLAGS += -DDAG_RECORDER=2
+LIBS += -ldr
+endif
+
+# Count number of M2L and P2P kernel calls
+if EXAFMM_COUNT_KERNEL
+AM_CPPFLAGS += -DEXAFMM_COUNT_KERNEL
+endif
+
+# Count interaction list per cell
+if EXAFMM_COUNT_LIST
+AM_CPPFLAGS += -DEXAFMM_COUNT_LIST
+endif
+
+if EXAFMM_ASSERT
+AM_CPPFLAGS += -DEXAFMM_ASSERT
+endif
+
+if EXAFMM_DEBUG
+#AM_CXXFLAGS += -fsanitize=address -Wconversion -Wundef
+AM_CXXFLAGS += -ftrapv -O0 -Wall -Wextra -Winit-self -Wshadow -Wuninitialized -Wunreachable-code
+endif
+
+AM_MAKEFLAGS = -s
+
+help:
+	@make -C .. help
+buildbot:
+	@make -C .. buildbot
+cleanbin:
+	@make -C .. cleanbin
+cleandat:
+	@make -C .. cleandat
+cleanlib:
+	@make -C .. cleanlib
+cleanall:
+	@make -C .. cleanall
+revert:
+	@make -C .. revert
+save:
+	@make -C .. save

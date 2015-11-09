@@ -2,14 +2,16 @@
 #include "kernel.h"
 #include <vector>
 #include "verify.h"
+using namespace exafmm;
 
 int main() {
   Bodies bodies(1), bodies2(1), jbodies(1);
-  const real_t eps2 = 0.0;
   const real_t theta = 0.5;
   const real_t R = 2 / theta;
+  kernel::eps2 = 0.0;
+  kernel::Xperiodic = 0;
+
   Cells cells(4);
-  vec3 Xperiodic = 0;
   Verify verify;
   jbodies[0].X = 0;
   jbodies[0].SRC = 1;
@@ -32,10 +34,10 @@ int main() {
   CI->X = 21. / 8;
   CI->M = 1;
   CI->L = 0;
-#if MASS
+#if EXAFMM_MASS
   for (int i=1; i<NTERM; i++) CJ->M[i] /= CJ->M[0];
 #endif
-  kernel::M2L(CI, CJ, Xperiodic, false);
+  kernel::M2L(CI, CJ, false);
 
   C_iter Ci = cells.begin()+3;
   Ci->X = 45. / 16;
@@ -48,10 +50,10 @@ int main() {
   Ci->X = 45. / 16;
   Ci->M = 1;
   Ci->L = 0;
-#if MASS
+#if EXAFMM_MASS
   for (int i=1; i<NTERM; i++) Cj->M[i] /= Cj->M[0];
 #endif
-  kernel::M2L(Ci, Cj, Xperiodic, false);
+  kernel::M2L(Ci, Cj, false);
 #endif
 
   bodies[0].X = 3;
@@ -68,7 +70,7 @@ int main() {
   Cj->NBODY = jbodies.size();
   Ci->NBODY = bodies2.size();
   Ci->BODY = bodies2.begin();
-  kernel::P2P(Ci, Cj, eps2, Xperiodic, false);
+  kernel::P2P(Ci, Cj, false);
   for (B_iter B=bodies2.begin(); B!=bodies2.end(); B++) {
     B->TRG /= B->SRC;
   }

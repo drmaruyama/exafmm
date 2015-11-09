@@ -1,23 +1,60 @@
--- Features to add --
-kernel: eps2, Xperiodic, wavek -> global variables
-bodies -> bodies + fields, bodyPos -> bodies, bodyAcc -> fields
-Time each kernel separately using cycle counters
-examples/Makefile options to args
-cycle counter based weights
-OpenMP with atomics -> flush
+-- Immediate --
+configure all machines (cross compile, optimization flags)
+make test all machines (batch queue submission)
+buildbot trigger all machines
+MPI overhaul
+
+-- MPI --
+LBT MPI <- ICELL is being calculated from localBounds
+Test difficult distributions for partitioning and LET
 MPI-3.0 lock all
-SIMD P2P performance
-Kahan + fixed precision
-Solid harmonics kernel
-Morton -> Hilbert
-splitRange defined in both dataset.h and partition.h
-UVWX-list with precomputation
+cycle counter based weights
 2:1 refinement for precomputation
-Periodic B.C. by one precomputed translation matrix
-Teng's BH MAC with M2P option during DTT
 non-orthogonal recursive bisection
 
--- GPU integration --
+-- automake --
+Debug MIC, Cray, FX100, SX-ACE (without CC=, CXX= option)
+Setup buildbot tests using "make check"
+move contents of macros.h to configure.ac
+examples/Makefile options to args
+unit test for each header file in /unit_test
+
+-- types --
+args.h, verify.h from class to namespace
+logger.h split to print.h
+bodies -> bodies + fields, bodyPos -> bodies, bodyAcc -> fields
+AoS, SoA union by Strzodka
+Use compressed Cell struct of Bonsai
+Remove M, L from Cell struct
+
+-- tree build --
+Separate key manipulation namespace, e.g. interleaveMorton(), deinterleveHilbert() (controllable key_t)
+Morton -> Hilbert
+
+-- kernels --
+Stokes kernels
+Have only one P2P
+Distinguish Pmax and P. Make P runtime option
+Use getIndex for NO_P2P
+Kahan + fixed precision
+Solid harmonics kernel
+hack vecmathlib and import essential features
+Helmholtz breaks for very low P
+Calculate Flops
+Cycle counter kernel timer
+FX10 sin, cos, exp intrinsic
+
+-- driver --
+Don't try to instantiate all the classes at the top (wait until useful parameters are ready)
+TBB -> OpenMP with atomics -> flush
+splitRange defined in both dataset.h and partition.h
+UVWX-list with precomputation
+Periodic B.C. by one precomputed translation matrix
+Teng's BH MAC with M2P option during DTT
+Interface with BEM code
+charmm2: remove repartition inside Ewald & VdW
+
+-- GPU --
 CUDA 6.0 debug
 Unify dataset
 .h -> .cxx/.cu
@@ -28,17 +65,10 @@ Zero softening
 -- Comparisons --
 DTT vs. UVWX-list
 Separate +- tree vs. Single tree
-Cartesian vs. Spherical (optimized)
+Cartesian vs. Spherical vs. Planewave
 ORB vs. HOT
+OpenMP vs. TBB vs. Cilk vs. MThreads
+Geometric vs. Algebraic Mat-Vec
 
--- Debugging tips --
-Write the kind of code where standard gcc can catch the bug, exceptions, assertions
-Add assertions and keep them there
-Shift bodies
-traverseLET 0 distance
-graft 0
-serial mimic parallel
-
--- Issues --
-charmm2: remove repartition inside Ewald & VdW
-Intel OpenMP error
+-- documentation --
+ipython notebook tutorial

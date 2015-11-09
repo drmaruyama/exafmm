@@ -1,13 +1,13 @@
-#ifndef build_tree_h
-#define build_tree_h
+#ifndef build_tree_cilk_h
+#define build_tree_cilk_h
 #include <algorithm>
 #include "logger.h"
 #include "thread.h"
 #include "types.h"
 
-#define BLOCK_SIZE 512
-#define NCRIT 16
-#define NBINS 64
+static const int blockSize 512
+static const int ncrit 16
+static const int nbins 64
 
 static const int morton256_x[256] = {
     0x00000000, 0x00000001, 0x00000008, 0x00000009, 0x00000040, 0x00000041, 0x00000048, 0x00000049,
@@ -134,8 +134,8 @@ Box bounds2box(Bounds & bounds) {
   return box;
 }
 
-void getKey(int numBodies, float * X, float * Xmin, float * Xmax, uint32_t * keys, int maxlevel) {
-  const int nbins = 1 << maxlevel;
+void getKey(int numBodies, float * X, float * Xmin, float * Xmax, uint32_t * keys, int numLevels) {
+  const int nbins = 1 << numLevels;
   Bounds bounds;
   for (int d=0; d<3; d++) {
     bounds.Xmin[d] = Xmin[d];
@@ -184,13 +184,13 @@ void relocate(uint32_t * keys, uint32_t * buffer, uint32_t * index, uint32_t * p
 
 void recursion(uint32_t * keys, uint32_t * buffer, uint32_t * permutation,
 	       uint32_t * index, int numBodies, int bitShift) {
-  //if (numBodies<=NCRIT || bitShift<0) {
+  //if (numBodies<=ncrit || bitShift<0) {
   if (bitShift<0) {
     permutation[0:numBodies] = index[0:numBodies];
     return;
   }
 
-  int counter[NBINS] = {0};
+  int counter[nbins] = {0};
 #pragma ivdep
   for (int i=0; i<numBodies; i++) {
     int b = (keys[i] >> bitShift) & 0x3F;
@@ -199,7 +199,7 @@ void recursion(uint32_t * keys, uint32_t * buffer, uint32_t * permutation,
 
   int offset = 0;
 #pragma ivdep
-  for (int b=0; b<NBINS; b++) {
+  for (int b=0; b<nbins; b++) {
     int size = counter[b];
     counter[b] = offset;
     offset += size;
@@ -210,7 +210,7 @@ void recursion(uint32_t * keys, uint32_t * buffer, uint32_t * permutation,
   std::swap(keys, buffer);
 
   offset = 0;
-  for (int b=0; b<NBINS; b++) {
+  for (int b=0; b<nbins; b++) {
     int size = counter[b] - offset;
     recursion(&keys[offset], &buffer[offset], &permutation[offset], &index[offset],
 	      size, bitShift-6);
@@ -219,40 +219,40 @@ void recursion(uint32_t * keys, uint32_t * buffer, uint32_t * permutation,
 }
 
 void radixSort(int numBodies, uint32_t * keys, uint32_t * buffer,
-	       uint32_t * permutation, uint32_t * index, int maxlevel) {
-  const int bitShift = 3 * (maxlevel - 2);
-  //if (numBodies<=NCRIT || bitShift<0) {
+	       uint32_t * permutation, uint32_t * index, int numLevels) {
+  const int bitShift = 3 * (numLevels - 2);
+  //if (numBodies<=ncrit || bitShift<0) {
   if (bitShift<0) {
     permutation[0:numBodies] = index[0:numBodies];
     return;
   }
   
-  int numBlock = (numBodies - 1) / BLOCK_SIZE + 1;
-  int counter[BLOCK_SIZE*NBINS] = {0};
-  cilk_for (int i=0; i<BLOCK_SIZE; i++) {
+  int numBlock = (numBodies - 1) / blockSize + 1;
+  int counter[blockSize*nbins] = {0};
+  cilk_for (int i=0; i<blockSize; i++) {
 #pragma ivdep
     for (int j=0; j<numBlock; j++) {
       if (i*numBlock+j < numBodies) {
 	int b = (keys[i*numBlock+j] >> bitShift) & 0x3F;
-	counter[i*NBINS+b]++;
+	counter[i*nbins+b]++;
       }
     }
   }
   
   int offset = 0;
-  for (int b=0; b<NBINS; b++) {
+  for (int b=0; b<nbins; b++) {
 #pragma ivdep
-    for (int i=0; i<BLOCK_SIZE; i++) {
-      int size = counter[i*NBINS+b];
-      counter[i*NBINS+b] = offset;
+    for (int i=0; i<blockSize; i++) {
+      int size = counter[i*nbins+b];
+      counter[i*nbins+b] = offset;
       offset += size;
     }
   }
 
-  for (int i=0; i<BLOCK_SIZE; i++) {
+  for (int i=0; i<blockSize; i++) {
     offset = i * numBlock;
     cilk_spawn relocate(&keys[offset], buffer, &index[offset], permutation,
-			&counter[i*NBINS], offset, numBlock, numBodies, bitShift);
+			&counter[i*nbins], offset, numBlock, numBodies, bitShift);
   }
   cilk_sync;
   
@@ -260,8 +260,8 @@ void radixSort(int numBodies, uint32_t * keys, uint32_t * buffer,
   std::swap(keys, buffer);
   
   offset = 0;
-  for (int b=0; b<NBINS; b++) {
-    int size = counter[(BLOCK_SIZE-1)*NBINS+b] - offset;
+  for (int b=0; b<nbins; b++) {
+    int size = counter[(blockSize-1)*nbins+b] - offset;
     cilk_spawn recursion(&keys[offset], &buffer[offset],
 			 &permutation[offset], &index[offset], size, bitShift-6);
     offset += size;
@@ -279,9 +279,9 @@ void permuteBlock(float * buffer, float * bodies, uint32_t * index, int numBlock
 }
 
 void permute(int numBodies, float * bodies, float * buffer, uint32_t * index) {
-  int numBlock = numBodies / BLOCK_SIZE;
+  int numBlock = numBodies / blockSize;
   int offset = 0;
-  for (int i=0; i<BLOCK_SIZE-1; i++) {
+  for (int i=0; i<blockSize-1; i++) {
     cilk_spawn permuteBlock(&buffer[12*offset], bodies, &index[offset], numBlock);
     offset += numBlock;
   }
@@ -291,7 +291,7 @@ void permute(int numBodies, float * bodies, float * buffer, uint32_t * index) {
 class BuildTree {
 private:
   const int ncrit;
-  int maxlevel;
+  int numLevels;
 
 private:
   void bodies2leafs(Bodies & bodies, Cells & cells, Bounds bounds, int level) {
@@ -378,12 +378,12 @@ private:
   }
 
 public:
-  BuildTree(int _ncrit, int) : maxlevel(0), ncrit(_ncrit) {}
+  BuildTree(int _ncrit, int) : numLevels(0), ncrit(_ncrit) {}
 
   Cells buildTree(Bodies & bodies, Bodies & buffer, Bounds bounds) {
     const int numBodies = bodies.size();
     const int level = numBodies >= ncrit ? 1 + int(log2(numBodies / ncrit)/3) : 0;
-    maxlevel = level;
+    numLevels = level;
 
 
     uint32_t * keys = new uint32_t [numBodies];
@@ -427,7 +427,7 @@ public:
     }
     logger::startTimer("Grow tree");
     logger::startTimer("Morton key");
-    getKey(numBodies, X, Xmin2, Xmax2, keys, maxlevel);
+    getKey(numBodies, X, Xmin2, Xmax2, keys, numLevels);
     logger::stopTimer("Morton key");
     printf("Key comparison:\n");
 
@@ -436,7 +436,7 @@ public:
     delete[] keys2;
 
     logger::startTimer("Radix sort");
-    radixSort(numBodies, keys, keys_buffer, permutation, index, maxlevel);
+    radixSort(numBodies, keys, keys_buffer, permutation, index, numLevels);
     logger::stopTimer("Radix sort");
     logger::stopTimer("Grow tree",0);
 
@@ -494,7 +494,7 @@ public:
 		 << std::setw(logger::stringLength) << std::left//  Set format
 		 << "Cells"      << " : " << cells.size() << std::endl// Print number of cells
 		 << std::setw(logger::stringLength) << std::left//  Set format
-		 << "Tree depth" << " : " << maxlevel << std::endl;//  Print number of levels
+		 << "Tree depth" << " : " << numLevels << std::endl;//  Print number of levels
     }                                                           // End if for verbose flag
   }
 };

@@ -1,7 +1,56 @@
-AM_CXXFLAGS = -I../include -msse4a -ffast-math -funroll-loops -fopenmp -DCartesian -DEXPANSION=4 -DUSE_SIMD -DMASS -DDIRECT
-# -DTBB
-bin_PROGRAMS = serial parallel
-serial_SOURCES = serial.cxx ../kernels/LaplaceCartesianCPU.cxx ../kernels/LaplaceP2PCPU.cxx
-# serial_LDADD = -ltbb
-parallel_SOURCES = parallel.cxx ../kernels/LaplaceCartesianCPU.cxx ../kernels/LaplaceP2PCPU.cxx
-# parallel_LDADD = -ltbb
+include ../Makefile.am.include
+
+bin_PROGRAMS = laplace_cartesian laplace_spherical helmholtz_spherical tree
+laplace_cartesian_SOURCES = fmm.cxx ../kernels/LaplaceCartesianCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_cartesian_CPPFLAGS = $(AM_CPPFLAGS) -DEXAFMM_LAPLACE -DEXAFMM_CARTESIAN -DEXAFMM_MASS -DEXAFMM_EXPANSION=4
+laplace_spherical_SOURCES = fmm.cxx ../kernels/LaplaceSphericalCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_spherical_CPPFLAGS = $(AM_CPPFLAGS) -DEXAFMM_LAPLACE -DEXAFMM_SPHERICAL -DEXAFMM_EXPANSION=10
+helmholtz_spherical_SOURCES = fmm.cxx ../kernels/HelmholtzSphericalCPU.cxx ../kernels/HelmholtzP2PCPU.cxx
+helmholtz_spherical_CPPFLAGS = $(AM_CPPFLAGS) -DEXAFMM_HELMHOLTZ -DEXAFMM_SPHERICAL -DEXAFMM_EXPANSION=10
+tree_SOURCES = tree.cxx
+tree_CPPFLAGS = $(laplace_cartesian_CPPFLAGS)
+
+run_laplace_cartesian: laplace_cartesian
+	./$< -Dgmovx
+run_laplace_spherical: laplace_spherical
+	./$< -Dgmovx
+run_helmholtz_spherical: helmholtz_spherical
+	./$< -Dgv -n 40000
+run_tree: tree
+	./$< -v -n 10000000
+
+bin_PROGRAMS += laplace_cartesian_kernel laplace_spherical_kernel helmholtz_spherical_kernel
+laplace_cartesian_kernel_SOURCES = kernel.cxx ../kernels/LaplaceCartesianCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_cartesian_kernel_CPPFLAGS = $(laplace_cartesian_CPPFLAGS)
+laplace_spherical_kernel_SOURCES = kernel.cxx ../kernels/LaplaceSphericalCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_spherical_kernel_CPPFLAGS = $(laplace_spherical_CPPFLAGS)
+helmholtz_spherical_kernel_SOURCES = kernel.cxx ../kernels/HelmholtzSphericalCPU.cxx ../kernels/HelmholtzP2PCPU.cxx
+helmholtz_spherical_kernel_CPPFLAGS = $(helmholtz_spherical_CPPFLAGS)
+
+run_laplace_cartesian_kernel: laplace_cartesian_kernel
+	./$< -v
+run_laplace_spherical_kernel: laplace_spherical_kernel
+	./$< -v
+run_helmholtz_spherical_kernel: helmholtz_spherical_kernel
+	./$< -v
+
+if EXAFMM_HAVE_MPI
+bin_PROGRAMS += laplace_cartesian_mpi laplace_spherical_mpi helmholtz_spherical_mpi ewald_mpi
+laplace_cartesian_mpi_SOURCES = fmm_mpi.cxx ../kernels/LaplaceCartesianCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_cartesian_mpi_CPPFLAGS = $(laplace_cartesian_CPPFLAGS)
+laplace_spherical_mpi_SOURCES = fmm_mpi.cxx ../kernels/LaplaceSphericalCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+laplace_spherical_mpi_CPPFLAGS = $(laplace_spherical_CPPFLAGS)
+helmholtz_spherical_mpi_SOURCES = fmm_mpi.cxx ../kernels/HelmholtzSphericalCPU.cxx ../kernels/HelmholtzP2PCPU.cxx
+helmholtz_spherical_mpi_CPPFLAGS = $(helmholtz_spherical_CPPFLAGS)
+ewald_mpi_SOURCES = ewald.cxx ../kernels/LaplaceSphericalCPU.cxx ../kernels/LaplaceP2PCPU.cxx
+ewald_mpi_CPPFLAGS = $(laplace_spherical_CPPFLAGS)
+
+run_laplace_cartesian_mpi: laplace_cartesian_mpi
+	$(MPIRUN) -n 2 ./$< -Dgmovx
+run_laplace_spherical_mpi: laplace_spherical_mpi
+	$(MPIRUN) -n 2 ./$< -Dgmovx
+run_helmholtz_spherical_mpi: helmholtz_spherical_mpi
+	$(MPIRUN) -n 2 ./$< -Dgv -n 100000
+run_ewald_mpi: ewald_mpi
+	$(MPIRUN) -n 2 ./$< -Dgmovx
+endif

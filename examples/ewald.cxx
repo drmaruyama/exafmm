@@ -10,21 +10,23 @@
 #include "tree_mpi.h"
 #include "up_down_pass.h"
 #include "verify.h"
-#if MASS
+#if EXAFMM_MASS
 #error Turn off MASS for this test
 #endif
-#if EXPANSION < 10
+#if EXAFMM_EXPANSION < 10
 #error Use P >=10 for this test
 #endif
+using namespace exafmm;
 
 int main(int argc, char ** argv) {
   const int ksize = 11;
-  const real_t eps2 = 0.0;
   const real_t cycle = 2 * M_PI;
   const real_t alpha = 10 / cycle;
   const real_t sigma = .25 / M_PI;
   const real_t cutoff = cycle / 2;
   Args args(argc, argv);
+  args.numBodies = 1000;
+  args.images = 3;
   BaseMPI baseMPI;
   Bodies bodies, bodies2, jbodies, gbodies, buffer;
   BoundBox boundBox(args.nspawn);
@@ -35,13 +37,13 @@ int main(int argc, char ** argv) {
   Dataset data;
   Ewald ewald(ksize, alpha, sigma, cutoff, cycle);
   Partition partition(baseMPI.mpirank, baseMPI.mpisize);
-  Traversal traversal(args.nspawn, args.images, eps2);
+  Traversal traversal(args.nspawn, args.images);
   TreeMPI treeMPI(baseMPI.mpirank, baseMPI.mpisize, args.images);
   UpDownPass upDownPass(args.theta, args.useRmax, args.useRopt);
   Verify verify;
   num_threads(args.threads);
 
-
+  kernel::eps2 = 0.0;
   args.verbose &= baseMPI.mpirank == 0;
   logger::verbose = args.verbose;
   logger::printTitle("Ewald Parameters");
@@ -71,17 +73,17 @@ int main(int argc, char ** argv) {
 
     traversal.initListCount(cells);
     traversal.initWeight(cells);
-    traversal.dualTreeTraversal(cells, cells, cycle, args.mutual);
+    traversal.traverse(cells, cells, cycle, args.dual, args.mutual);
     if (args.graft) {
       treeMPI.linkLET();
       gbodies = treeMPI.root2body();
       jcells = globalTree.buildTree(gbodies, buffer, globalBounds);
       treeMPI.attachRoot(jcells);
-      traversal.dualTreeTraversal(cells, jcells, cycle, false);
+      traversal.traverse(cells, jcells, cycle, args.dual, false);
     } else {
       for (int irank=0; irank<baseMPI.mpisize; irank++) {
 	treeMPI.getLET(jcells, (baseMPI.mpirank+irank)%baseMPI.mpisize);
-	traversal.dualTreeTraversal(cells, jcells, cycle, false);
+	traversal.traverse(cells, jcells, cycle, args.dual, false);
       }
     }
     upDownPass.downwardPass(cells);

@@ -8,9 +8,13 @@
 #include "traversal.h"
 #include "tree_mpi.h"
 #include "up_down_pass.h"
-#if MASS
-#error Turn off MASS for this wrapper
+#if EXAFMM_MASS
+#error Turn off EXAFMM_MASS for this wrapper
 #endif
+#if EXAFMM_NO_P2P
+#warning Compiling with EXAFMM_NO_P2P. Answer will be wrong for test_gromacs.
+#endif
+using namespace exafmm;
 
 Args * args;
 BaseMPI * baseMPI;
@@ -26,13 +30,15 @@ Bodies buffer;
 Bounds localBounds;
 Bounds globalBounds;
 
-extern "C" void FMM_Init(int images) {
+extern "C" void FMM_Init(int images, int threads, bool verbose) {
   const int ncrit = 32;
   const int nspawn = 1000;
-  const real_t eps2 = 0.0;
   const real_t theta = 0.5;
   const bool useRmax = false;
   const bool useRopt = false;
+  kernel::eps2 = 0.0;
+  kernel::setup();
+
   args = new Args;
   baseMPI = new BaseMPI;
   boundBox = new BoundBox(nspawn);
@@ -40,20 +46,23 @@ extern "C" void FMM_Init(int images) {
   localTree = new BuildTree(ncrit, nspawn);
   globalTree = new BuildTree(1, nspawn);
   partition = new Partition(baseMPI->mpirank, baseMPI->mpisize);
-  traversal = new Traversal(nspawn, images, eps2);
+  traversal = new Traversal(nspawn, images);
   treeMPI = new TreeMPI(baseMPI->mpirank, baseMPI->mpisize, images);
   upDownPass = new UpDownPass(theta, useRmax, useRopt);
 
-  args->theta = theta;
   args->ncrit = ncrit;
-  args->nspawn = nspawn;
-  args->images = images;
-  args->useRmax = useRmax;
-  args->useRopt = useRopt;
-  args->mutual = 0;
-  args->verbose = 1;
   args->distribution = "external";
-  args->verbose &= baseMPI->mpirank == 0;
+  args->dual = 1;
+  args->graft = 1;
+  args->images = images;
+  args->mutual = 0;
+  args->numBodies = 0;
+  args->useRopt = useRopt;
+  args->nspawn = nspawn;
+  args->theta = theta;
+  args->threads = threads;
+  args->verbose = verbose & (baseMPI->mpirank == 0);
+  args->useRmax = useRmax;
   logger::verbose = args->verbose;
   logger::printTitle("Initial Parameters");
   args->print(logger::stringLength, P);
@@ -74,6 +83,7 @@ extern "C" void FMM_Finalize() {
 
 extern "C" void FMM_Partition(int & n, int * ibody, int * icell, float * x, float * q, float cycle) {
   logger::printTitle("Partition Profiling");
+  num_threads(args->threads);
   const int shift = 29;
   const int mask = ~(0x7U << shift);
   Bodies bodies(n);
@@ -91,7 +101,7 @@ extern "C" void FMM_Partition(int & n, int * ibody, int * icell, float * x, floa
   globalBounds = baseMPI->allreduceBounds(localBounds);
   localBounds = partition->octsection(bodies,globalBounds);
   bodies = treeMPI->commBodies(bodies);
-#if Cluster
+#if EXAFMM_CLUSTER
   Bodies clusters = clusterTree->setClusterCenter(bodies, cycle);
   Cells cells = globalTree->buildTree(clusters, buffer, localBounds);
   clusterTree->attachClusterBodies(bodies, cells, cycle);
@@ -100,7 +110,7 @@ extern "C" void FMM_Partition(int & n, int * ibody, int * icell, float * x, floa
 #endif
   upDownPass->upwardPass(cells);
 
-#if Cluster
+#if EXAFMM_CLUSTER
   clusterTree->shiftBackBodies(bodies, cycle);
 #endif
   for (B_iter B=bodies.begin(); B!=bodies.end(); B++) {
@@ -118,6 +128,7 @@ extern "C" void FMM_Partition(int & n, int * ibody, int * icell, float * x, floa
 }
 
 extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p, float * f, float cycle) {
+  num_threads(args->threads);
   args->numBodies = n;
   logger::printTitle("FMM Parameters");
   args->print(logger::stringLength, P);
@@ -139,7 +150,7 @@ extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p,
     B->IBODY = i;
     B->ICELL = index[i];
   }
-#if Cluster
+#if EXAFMM_CLUSTER
   Bodies clusters = clusterTree->setClusterCenter(bodies, cycle);
   Cells cells = globalTree->buildTree(clusters, buffer, localBounds);
   clusterTree->attachClusterBodies(bodies, cells, cycle);
@@ -153,8 +164,8 @@ extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p,
   treeMPI->commCells();
   traversal->initListCount(cells);
   traversal->initWeight(cells);
-  traversal->dualTreeTraversal(cells, cells, cycle, args->mutual);
-#if COUNT_LIST
+  traversal->traverse(cells, cells, cycle, args->dual, args->mutual);
+#if EXAFMM_COUNT_LIST
   traversal->writeList(cells, baseMPI->mpirank);
 #endif
   Cells jcells;
@@ -163,11 +174,11 @@ extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p,
     Bodies gbodies = treeMPI->root2body();
     jcells = globalTree->buildTree(gbodies, buffer, globalBounds);
     treeMPI->attachRoot(jcells);
-    traversal->dualTreeTraversal(cells, jcells, cycle, false);
+    traversal->traverse(cells, jcells, cycle, args->dual, false);
   } else {
     for (int irank=0; irank<baseMPI->mpisize; irank++) {
       treeMPI->getLET(jcells, (baseMPI->mpirank+irank)%baseMPI->mpisize);
-      traversal->dualTreeTraversal(cells, jcells, cycle, false);
+      traversal->traverse(cells, jcells, cycle, args->dual, false);
     }
   }
   upDownPass->downwardPass(cells);
@@ -179,7 +190,7 @@ extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p,
   logger::stopTimer("Total FMM");
   logger::printTitle("Total runtime");
   logger::printTime("Total FMM");
-#if Cluster
+#if EXAFMM_CLUSTER
   clusterTree->shiftBackBodies(bodies, cycle);
 #endif
   for (B_iter B=bodies.begin(); B!=bodies.end(); B++) {
@@ -193,6 +204,7 @@ extern "C" void FMM_Coulomb(int n, int * index, float * x, float * q, float * p,
 
 extern "C" void Ewald_Coulomb(int n, float * x, float * q, float * p, float * f,
 			      int ksize, float alpha, float sigma, float cutoff, float cycle) {
+  num_threads(args->threads);
   Ewald * ewald = new Ewald(ksize, alpha, sigma, cutoff, cycle);
   args->numBodies = n;
   logger::printTitle("Ewald Parameters");

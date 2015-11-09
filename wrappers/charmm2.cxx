@@ -9,16 +9,15 @@
 #include "tree_mpi.h"
 #include "up_down_pass.h"
 #include "van_der_waals.h"
-
-#if Serial
+#if EXAFMM_SERIAL
 #include "serialfmm.h"
 #else
 #include "parallelfmm.h"
 #endif
-
-#if MASS
-#error Turn off MASS for this wrapper
+#if EXAFMM_MASS
+#error Turn off EXAFMM_MASS for this wrapper
 #endif
+using namespace exafmm;
 
 static const double Celec = 332.0716;
 
@@ -31,7 +30,7 @@ Traversal * traversal;
 TreeMPI * treeMPI;
 UpDownPass * upDownPass;
 
-#if Serial
+#if EXAFMM_SERIAL
 SerialFMM * FMM;
 #else
 ParallelFMM * FMM;
@@ -45,38 +44,43 @@ extern "C" void fmm_init_(int & images, double & theta, int & verbose, int & ngl
   int ncrit = 32;
   const int nspawn = 1000;
   const int threads = 1;
-  const real_t eps2 = 0.0;
   const bool useRmax = true;
   const bool useRopt = true;
+  kernel::eps2 = 0.0;
+  kernel::setup();
+
   args = new Args;
   baseMPI = new BaseMPI;
   boundBox = new BoundBox(nspawn);
   localTree = new BuildTree(ncrit, nspawn);
   globalTree = new BuildTree(1, nspawn);
   partition = new Partition(baseMPI->mpirank, baseMPI->mpisize);
-  traversal = new Traversal(nspawn, images, eps2);
+  traversal = new Traversal(nspawn, images);
   treeMPI = new TreeMPI(baseMPI->mpirank, baseMPI->mpisize, images);
   upDownPass = new UpDownPass(theta, useRmax, useRopt);
-#if Serial
+#if EXAFMM_SERIAL
   FMM = new SerialFMM;
 #else
   FMM = new ParallelFMM;
 #endif
 
-  args->theta = theta;
   args->ncrit = ncrit;
-  args->nspawn = nspawn;
-  args->threads = threads;
+  args->distribution = "external";
+  args->dual = 1;
+  args->graft = 1;
   args->images = images;
   args->mutual = 0;
-  args->verbose = verbose;
-  args->distribution = "external";
-  args->verbose &= baseMPI->mpirank == 0;
+  args->numBodies = 0;
+  args->useRopt = useRopt;
+  args->nspawn = nspawn;
+  args->theta = theta;
+  args->verbose = verbose & (baseMPI->mpirank == 0);
+  args->useRmax = useRmax;
   logger::verbose = args->verbose;
   logger::printTitle("Initial Parameters");
   args->print(logger::stringLength, P);
   if (baseMPI->mpirank == 0) {
-    std::cout << "PP      : " << PP << std::endl;
+    std::cout << "PP      : " << EXAFMM_PP << std::endl;
     std::cout << "DP2P    : " << DP2P << std::endl;
     std::cout << "DM2L    : " << DM2L << std::endl;
   //std::cout << "ALPHA_M : " << ALPHA_M << std::endl;  
@@ -250,7 +254,7 @@ extern "C" void fmm_coulomb_(int & nglobal, int * icpumap,
   FMM->sortBodies();
   FMM->buildTree();
   FMM->upwardPass();
-#if Serial
+#if EXAFMM_SERIAL
 #else
   FMM->P2PSend();
   FMM->P2PRecv();
@@ -263,7 +267,7 @@ extern "C" void fmm_coulomb_(int & nglobal, int * icpumap,
   FMM->globM2L();
 #endif
   FMM->periodicM2L();
-#if Serial
+#if EXAFMM_SERIAL
 #else
   FMM->globL2L();
 #endif
@@ -277,18 +281,18 @@ extern "C" void fmm_coulomb_(int & nglobal, int * icpumap,
   treeMPI->commCells();
   traversal->initListCount(cells);
   traversal->initWeight(cells);
-  traversal->dualTreeTraversal(cells, cells, cycle, args->mutual);
+  traversal->traverse(cells, cells, cycle, args->dual, args->mutual);
   Cells jcells;
   if (args->graft) {
     treeMPI->linkLET();
     Bodies gbodies = treeMPI->root2body();
     jcells = globalTree->buildTree(gbodies, buffer, globalBounds);
     treeMPI->attachRoot(jcells);
-    traversal->dualTreeTraversal(cells, jcells, cycle, false);
+    traversal->traverse(cells, jcells, cycle, args->dual, false);
   } else {
     for (int irank=0; irank<baseMPI->mpisize; irank++) {
       treeMPI->getLET(jcells, (baseMPI->mpirank+irank)%baseMPI->mpisize);
-      traversal->dualTreeTraversal(cells, jcells, cycle, false);
+      traversal->traverse(cells, jcells, cycle, args->dual, false);
     }
   }
   upDownPass->downwardPass(cells);
